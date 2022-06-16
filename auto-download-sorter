@@ -1,0 +1,73 @@
+#!/usr/bin/python3
+
+import sys
+from optparse import OptionParser
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+
+DEBUG = False
+BACKGROUND = False
+
+class EventHandler(FileSystemEventHandler):
+
+    def on_created(self, event):
+        debug(f"New: {event.src_path.strip()}")
+
+    def get_dest(self, src_path:str) -> str:
+        pass
+
+def debug(msg:str) -> None:
+    if DEBUG:
+        print(msg)
+
+def setup_parser() -> OptionParser:
+
+    parser = OptionParser(usage="%prog [option]",
+                          epilog="'-d' and '-b' are mutually exclusive")
+
+    parser.add_option("-d",
+		      action="store_true",
+		      default=False,
+		      dest="DEBUG",
+		      help="prints debug messages"
+		     )
+
+    parser.add_option("-b",
+		      action="store_true",
+		      default=False,
+		      dest="BACKGROUND",
+		      help="runs the program in the background"
+		     )
+    return parser
+
+def main() -> None:
+
+    global DEBUG
+    global BACKGROUND
+
+    parser = setup_parser()
+
+    (opts, args) = parser.parse_args()
+
+    if args or (opts.DEBUG and opts.BACKGROUND):
+        parser.print_help()
+        sys.exit(1)
+
+    DEBUG = opts.DEBUG
+    BACKGROUND = opts.BACKGROUND
+
+    event_handler = EventHandler()
+    observer = Observer()
+    observer.schedule(event_handler, path="/home/labuser/Downloads/", recursive=False)
+
+    try:
+        observer.start()
+        observer.join()
+    except Exception as e:
+        print(e)
+    finally:
+        observer.stop()
+        observer.join()
+
+if __name__ == "__main__":
+    main()
