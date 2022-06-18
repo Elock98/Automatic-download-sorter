@@ -1,73 +1,187 @@
 #!/usr/bin/python3
 
 import sys
+import os
+from subprocess import check_output, Popen, PIPE
 from optparse import OptionParser
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from typing import Optional
 
 DEBUG = False
-BACKGROUND = False
+NOTIFY = False
+
+USER = os.environ.get("USER")
 
 class EventHandler(FileSystemEventHandler):
+    """
+        Handles new files that shows up in
+        the logged in users downloads directory
+    """
+    def on_created(self, event) -> None:
+        f_name = str(event.src_path).split("/")[-1]
+        debug(f"{event.src_path} detected in {USER}/Downloads")
+        notify(f"{f_name} detected in {USER}/Downloads")
 
-    def on_created(self, event):
-        debug(f"New: {event.src_path.strip()}")
+        dest = self.get_dest(event.src_path.strip())
+        if dest is None:
+            debug(f"No destination folder found for file {f_name} found in {event.src_path}")
+            notify("No matching destination!")
+            return
 
-    def get_dest(self, src_path:str) -> str:
-        pass
+        debug(f"Moving {f_name} from {event.src_path} to {USER}/Downloads/{dest}")
+        notify(f"Moving {f_name} to {USER}/Downloads/{dest}")
+
+        with Popen(["mv", event.src_path, f"/home/{USER}/Downloads/{dest}"]) as proc:
+            pass
+
+    @staticmethod
+    def get_dest(src_path:str) -> Optional[str]:
+        dests = {
+                    "jpg"  :  "Images",
+		    "png"  :  "Images",
+                    "bmp"  :  "Images",
+                    "gif"  :  "Images",
+                    "ico"  :  "Images",
+                    "jpeg" :  "Images",
+                    "svg"  :  "Images",
+
+                    "pps"  :  "Documents",
+                    "ppt"  :  "Documents",
+                    "pptx" :  "Documents",
+		    "pdf"  :  "Documents",
+                    "doc"  :  "Documents",
+		    "docx" :  "Documents",
+		    "txt"  :  "Documents",
+                    "tex"  :  "Documents",
+                    "otd"  :  "Documents",
+
+		    "py"   :  "Code",
+                    "dll"  :  "Code",
+                    "bat"  :  "Code",
+                    "bin"  :  "Code",
+                    "c"    :  "Code",
+                    "cpp"  :  "Code",
+                    "h"    :  "Code",
+                    "html" :  "Code",
+                    "css"  :  "Code",
+
+                    "avi"  :  "Video",
+                    "flv"  :  "Video",
+                    "h264" :  "Video",
+                    "mp4"  :  "Video",
+                    "mpg"  :  "Video",
+                    "mpeg" :  "Video",
+
+		    "mp3"  :  "Audio",
+                    "mpa"  :  "Audio",
+		    "wav"  :  "Audio",
+                    "vma"  :  "Audio",
+
+                    "zip"  :  "Zipped",
+                    "deb"  :  "Zipped",
+                    "rar"  :  "Zipped",
+                    "rpm"  :  "Zipped",
+                    "pkg"  :  "Zipped",
+                }
+
+        file_ext = src_path.split(".")[-1].lower()
+
+        return dests.get(file_ext)
 
 def debug(msg:str) -> None:
+    """
+        Prints debug message to the terminal
+    """
     if DEBUG:
         print(msg)
 
-def setup_parser() -> OptionParser:
+def notify(msg:str) -> None:
+    """
+        Notifies the user
+    """
+    if NOTIFY:
+        os.system(f'notify-send "{msg}"')
 
-    parser = OptionParser(usage="%prog [option]",
-                          epilog="'-d' and '-b' are mutually exclusive")
+def setup_target_folders() -> None:
+    """
+	Checks if target folders exist,
+	if a folder don't exist it will be
+	created.
+    """
+    dir_keys = ["Images", "Audio", "Video", "Documents", "Zipped", "Code"]
+
+    raw_dirs = str(check_output(["ls", f"/home/{USER}/Downloads"]))
+    raw_dirs = raw_dirs.split("\\n")
+    raw_dirs[0] = raw_dirs[0][2:]
+    existing_dirs = raw_dirs[:-1]
+    debug(f"Existing dirs: {existing_dirs}")
+
+    create_dirs = [dir for dir in dir_keys if dir not in existing_dirs]
+    debug(f"Creating dirs: {create_dirs}")
+
+    for dir in create_dirs:
+        with Popen(["mkdir", f"/home/{USER}/Downloads/{dir}"]) as proc:
+            pass
+
+
+def setup_parser() -> OptionParser:
+    """
+        Sets up and return an OptionParser object
+    """
+    parser = OptionParser(usage="%prog [option]")
 
     parser.add_option("-d",
 		      action="store_true",
 		      default=False,
 		      dest="DEBUG",
-		      help="prints debug messages"
+		      help="prints debug messages to the terminal"
 		     )
 
-    parser.add_option("-b",
-		      action="store_true",
-		      default=False,
-		      dest="BACKGROUND",
-		      help="runs the program in the background"
-		     )
+    parser.add_option("-n",
+                      action="store_true",
+                      default=False,
+                      dest="NOTIFY",
+                      help="enables notificatoins to be sent"
+                     )
+
     return parser
 
 def main() -> None:
-
-    global DEBUG
-    global BACKGROUND
-
     parser = setup_parser()
 
     (opts, args) = parser.parse_args()
 
-    if args or (opts.DEBUG and opts.BACKGROUND):
+    if args:
         parser.print_help()
         sys.exit(1)
 
+    global DEBUG
     DEBUG = opts.DEBUG
-    BACKGROUND = opts.BACKGROUND
+
+    global NOTIFY
+    NOTIFY = opts.NOTIFY
+
+    setup_target_folders()
+    debug(f"Target folders have been setup")
 
     event_handler = EventHandler()
     observer = Observer()
-    observer.schedule(event_handler, path="/home/labuser/Downloads/", recursive=False)
+    observer.schedule(event_handler, path=f"/home/{USER}/Downloads/", recursive=False)
+    debug(f"EventHandler and Observer has been setup")
 
     try:
+        debug(f"Starting observer")
         observer.start()
         observer.join()
+    except KeyboardInterrupt:
+        debug(f"\nUser has stopped program")
     except Exception as e:
         print(e)
     finally:
         observer.stop()
         observer.join()
+        debug(f"\nExiting program")
 
 if __name__ == "__main__":
     main()
